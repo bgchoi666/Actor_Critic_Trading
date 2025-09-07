@@ -13,3 +13,202 @@ Given Period 1
 |Index| 340| 350| 340| 345| 355| 330 |
 
 |State| 0.029 | -0.028 | 0.0147 | -0.0289 | 0.014 | -1 |
+
+Module Description:
+# class ActorCritic:
+It consists of one shared dense layer, one dense layer used as an actor, and one dense layer used as a critic. The actor has three outputs, and the critic has one output. The shared dense layer has 128 outputs. Therefore, the actor and critic share a layer with 128 hidden units.
+
+# class env:
+It takes the current state as input, creates a new action (transaction signal), moves one step, modifies the state, and outputs the action along with the reward, indicating whether the move was profitable or not.
+
+# run episode
+Executes env_step for the given number of steps, returning the softmax probability values ​​of the actor's output, the critic's output (value), and the rewards for each step.
+
+Calculating Expected Profit
+
+# Sum of discounted cumulative rewards.
+Expected Profit for the nth round = ( … (reward_0 * 0.99 + reward_1) * 0.99 + reward_2) * 0.99 + … .. ) * 0.99 + reward_n-1
+
+# Calculate the loss value
+
+Calculate the loss values ​​of the actor and critic and return their sum.
+The actor's loss value is calculated as: -tf.math.reduce_sum(action_log_probs * (returns - values))
+critic_loss = huber_loss(values, returns)
+
+* What is Huber loss? https://en.wikipedia.org/wiki/Huber_loss
+
+# Train Step
+Proceed through one episode, returning action probabilities, values, and expected returns. Then, compute_loss computes the loss value. Learning is performed based on the loss value. The return value is the sum of the rewards.
+
+# Running the Training Loop
+Training is performed by executing training steps until a success criterion or a maximum number of episodes is reached.
+A queue is used to maintain a running record of episode rewards. After 100 trials, the oldest reward is removed from the left (tail) end of the queue, and the most recent reward is added to the head (right). A cumulative sum of rewards is also maintained to improve computational efficiency.
+Depending on the runtime, training can complete in less than a minute.
+
+# Test
+The trained model is applied to the given test data set, generating trading signals based on the model's actions. The trading profits based on the generated signals are calculated.
+
+# Summary of Experimental Results
+
+The test results for 2022 and 2023 were promising, though not satisfactory. To briefly explain the principle, the actor probabilistically predicts buy/sell/neutral signals based on five-day returns and the current holding status, while the critic estimates the expected return. The losses from both sides are combined and trained simultaneously. Therefore, the signal naturally adjusts based on the return.
+
+The basic principle seems to be that if the return is good, the current holding status is maintained, and if it's bad, the training takes the opposite position. Therefore, rather than learning based on accurate data about future situations, the training method estimates expected returns by observing past return trends based on actions.
+
+However, adjusting actions based on past returns has limitations. Returns are the difference between the current price and the future price. Even with the same return, it's difficult to distinguish whether it originated from a high or low price range. It also doesn't provide insight into how prices are formed.
+
+As such, returns alone do not provide sufficient information, and estimating future returns based on past returns further increases the distance from accurate information.
+
+Of course, price information itself may not be a necessary or sufficient element for accurate predictions of future conditions, but it is the only thing we can easily access and digitize.
+
+Therefore, learning about future trends based on past price trends is a priority. Learning from price and derivative data using deep learning should be a priority. If reinforcement learning is to be applied, a good application would be to solve the problem of selecting the best model among the various deep learning-trained models.
+
+Actor Role Change – Deep Learning Model Selection
+Action: Select from 10 pre-trained deep learning models
+Reward: The degree of return improvement of the selected model
+State: The returns of each deep learning model from a certain period in the past to the present + Short-term, medium-term, and long-term returns of the index
+
+# <Module Description>
+
+ensembles: Ensemble model combination + reinfo + pred_term + eval_term
+A list of 10 elements
+
+ensemble_predict((start_time, end_time, ensemble): Returns the return from start_time to end_time for the ensemble combination corresponding to the given model number ('model0').
+
+# Load 60-minute data
+df0 = pd.read_csv("kospi200f_60M.csv", encoding='euc-kr')
+
+# Load 2022 model and daily profit data
+profit_df = pd.read_csv("ensemble_profits_2021~2023.csv", encoding='euc-kr')
+
+class ActorCritic(tf.keras.Model): Consists of a common network with two dense layers and one actor and one critic layer each. Input is state, output is actor action and reward, and critic value.
+
+class env: Changes the state based on past returns at a given position in the given dataframe, then moves the position to calculate and return the action, reward, and value.
+
+def __init__(self, conf): Initializes start_time, end_time, dataframe, current position,
+initial_state, etc.
+
+def step(self, action: tf.Tensor) -> Tuple[tf.Tensor, tf.Tensor]: Returns the return of the model selected by the action and the state change according to the position step.
+
+def reset(self, conf) -> tf.Tensor: Performs initialization based on the current position.
+
+def run_episode(
+initial_state: tf.Tensor,
+model: tf.keras.Model,
+max_steps: int) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
+"""Runs a single episode to collect training data."""
+
+Runs env_step for max_steps and returns action and reward values.
+
+def get_expected_return(
+rewards: tf.Tensor,
+gamma: float,
+standardize: bool = True) -> tf.Tensor:
+"""Compute expected returns per timestep."""
+
+# Calculate expected profits
+At each timestep 𝑡, 𝑟𝑡𝑡=1���∗�=1 collected during an episode, the sequence of rewards is converted to a sequence of expected profits 𝐺∗𝑡𝑇𝑡=1�∗��=1�. Here, the sum of rewards is calculated from the current timestep 𝑡� to 𝑇�, and an exponentially decreasing discount factor 𝛾� is applied to each reward. Multiply.
+𝐺𝑡=∑𝑡′=𝑡𝑇𝛾𝑡′−𝑡𝑟𝑡′��=∑�′=����′−���′
+After 𝛾∈(0,1)�∈(0,1), rewards further away from the current timestep are given less weight.
+Intuitively, the expected gain simply implies that the current reward is better than the future reward. This is, in a mathematical sense, to ensure that the sum of rewards converges.
+To stabilize training, the resulting sequence of returns is also standardized (i.e., to have zero mean and unit standard deviation).
+
+huber_loss = tf.keras.losses.Huber(reduction=tf.keras.losses.Reduction.SUM)
+
+def compute_loss(
+action_probs: tf.Tensor,
+values: tf.Tensor,
+returns: tf.Tensor) -> tf.Tensor:
+"""Computes the combined Actor-Critic loss."""
+
+Loss function: L = L(actor) + L(critic)
+
+Actor loss: L(actors) = -sigma(i=1, T)logphi0(a(i)|s(i))[G(s(i), a(t) - V(phi, 0)(s(i))]
+
+  Where:
+  T: The number of timesteps per episode, which can vary from episode to episode.
+  st: The state at timestep t.
+  at: The action selected at timestep t based on state s.
+  πθ: A policy (Actor) parameterized by θ.
+  Vθπ: A value function (Critic) parameterized by θ.
+  G: The expected payoff for a given state.
+
+  #@tf.function
+  def train_step(
+  initial_state: tf.Tensor,
+  
+  model: tf.keras.Model,
+  
+  optimizer: tf.keras.optimizers.Optimizer,
+  
+  gamma: float,
+  
+  max_steps_per_episode: int) -> tf.Tensor:
+  ""Runs a model training step."""
+
+# Parameters Defining a Training Step for Updating
+All of the above steps are combined into a training step that runs in every episode. All steps leading to the loss function are executed in the tf.GradientTape context, enabling automatic differentiation.
+This tutorial uses the Adam optimizer to apply gradients to the model parameters.
+The episode_reward, the sum of the undiscounted rewards, is also computed in this step. This value is later used to evaluate whether the success criterion is met.
+Applying the tf.function context to the train_step function allows compiling it into a callable TensorFlow graph, potentially speeding up training by a factor of 10.
+
+def train(conf, train_df, model):
+
+  Iterate through n run_episode iterations, executing env_step m times per episode, within the given data range. Using the expected return and actions from each episode, the loss is computed and trained using the previously described method.
+
+def test(conf, test_df, model):
+
+  Calculate the profit by accumulating the signal from the model selection generated by executing env_step within the given data range. Returns.
+
+def make_actions(
+  initial_state: tf.Tensor,
+  model: tf.keras.Model,
+  max_steps: int) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
+  """Runs env_step as many as max steps."""
+
+  Runs within test. Returns the actor's actions for all data in the binary DataFrame given to Env.
+
+def make_signals(conf, actions, max_steps):
+
+  Generate buy/sell signals for the model's test period based on the model's selected actions in make_action.
+
+# Load the 2022 model and daily profit data.
+profit_df = pd.read_csv("ensemble_profits_2021~2023.csv", encoding='euc-kr')
+
+import data
+from data import config
+conf = config()
+import ensemble_proc as ep
+
+import pandas as pd
+import datetime
+
+def ensemble_predict(start_time, end_time, ensemble):
+    Returns the change in profit for the given ensemble between start_time and end_time in profit_df.
+
+def selected_action_signals(conf, action):
+    Generate signals based on model selection.
+
+    ensemble = ensembles[action]
+    signals = ensemble_signals(conf, ensemble)
+    
+    return signals
+
+def ensemble_signals(conf, ensemble):
+    Predicts based on the training model folder, start date, and end date specified in conf for the given ensemble.
+    Returns only signals from the results.
+
+    conf.selected_model_types = ensemble[:3]
+    
+    conf.reinfo_th = ensemble[3]
+    conf.pred_term = ensemble[4]
+    conf.reinfo_width = ensemble[5] 
+    
+    conf.gubun = 0 
+    conf.result_path = 'pred_88_results.csv' 
+    
+    data.preprocessing(conf) 
+    r = ep.predict(conf) 
+    
+    signals = pd.read_csv(conf.result_path).values[:, 1] 
+    
+    return signals
