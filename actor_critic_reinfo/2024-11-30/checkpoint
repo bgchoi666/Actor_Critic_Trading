@@ -1,0 +1,2 @@
+model_checkpoint_path: "60M_input83_test"
+all_model_checkpoint_paths: "60M_input83_test"
