@@ -1,4 +1,4 @@
-# <model description>
+# model description
 
 # actor_critic_reinfo
 Advatage Actor-Critic trains a model that outputs optimal reinfo values. The state is the data from Algorithms 2-1, 4-1, and 5-1, and the reward environment is the return based on the reinfo actions of the Bong and Bong-sa of the randomly selected ensemble models within the given algorithm range. The weights are updated using (expected return, critic model value) and (actor model action probability).
